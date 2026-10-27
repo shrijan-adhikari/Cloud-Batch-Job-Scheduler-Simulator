@@ -1,0 +1,32 @@
+{
+  "cluster": {
+    "num_cpus": 4,
+    "total_memory_gb": 64,
+    "memory_suspension_threshold": 0.85,
+    "memory_resume_threshold": 0.70
+  },
+  "schedulers": {
+    "long_term_policy": "memory_aware_fcfs",
+    "medium_term_policy": "suspend_lowest_priority",
+    "short_term_policy": "round_robin",
+    "time_quantum": 4,
+    "aging_interval_ticks": 6,
+    "min_residency_ticks": 3,
+    "max_swaps_per_tick": 1
+  },
+  "os_bridge": {
+    "enabled": false,
+    "ram_scale_mb_per_gb": 15,
+    "tick_duration_sec": 1.0,
+    "max_total_real_ram_mb": 1024,
+    "max_live_workers": 16
+  },
+  "workload": {
+    "num_jobs": 20,
+    "random_seed": 42
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

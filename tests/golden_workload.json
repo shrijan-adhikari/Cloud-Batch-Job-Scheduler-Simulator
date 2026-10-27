@@ -1,0 +1,29 @@
+[
+  {
+    "id": 101,
+    "name": "job-alpha",
+    "user": "alice",
+    "arrival_time": 0,
+    "burst_time": 5,
+    "memory_gb": 8,
+    "base_priority": 3
+  },
+  {
+    "id": 102,
+    "name": "job-beta",
+    "user": "bob",
+    "arrival_time": 1,
+    "burst_time": 2,
+    "memory_gb": 8,
+    "base_priority": 1
+  },
+  {
+    "id": 103,
+    "name": "job-gamma",
+    "user": "carol",
+    "arrival_time": 2,
+    "burst_time": 4,
+    "memory_gb": 8,
+    "base_priority": 2
+  }
+]
