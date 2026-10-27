@@ -8,6 +8,7 @@ let benchmarkCharts = {};
 let selectedJobId = null;
 const commandHistory = [];
 let historyIndex = -1;
+window.lastHostProcesses = [];
 
 const JOB_COLORS = [
   '#38bdf8', '#818cf8', '#c084fc', '#f472b6', '#fb7185',
@@ -41,7 +42,7 @@ function initWebSocket() {
     ws.onopen = () => {
       const badge = document.getElementById('ws-badge');
       if (badge) {
-        badge.className = 'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
+        badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
         badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5"></span> WS CONNECTED';
       }
       fetchCurrentState();
@@ -59,7 +60,7 @@ function initWebSocket() {
     ws.onclose = () => {
       const badge = document.getElementById('ws-badge');
       if (badge) {
-        badge.className = 'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/30';
+        badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/30';
         badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400 mr-1.5"></span> WS DISCONNECTED';
       }
       setTimeout(initWebSocket, 2000);
@@ -72,7 +73,6 @@ function initWebSocket() {
     console.warn('WebSocket init failed, fallback to polling:', e);
   }
 }
-
 
 // 2. Render State Snapshot
 function renderSnapshot(snap) {
@@ -91,9 +91,8 @@ function renderSnapshot(snap) {
   // Tick Badge
   document.getElementById('tick-counter').innerText = `#${snap.tick}`;
 
-  // Sim Cluster Telemetry
-  const cluster = snap.cluster;
-
+  // Sim Cluster Telemetry (Default 24 GB)
+  const cluster = snap.cluster || {};
   const numCpus = cluster.num_cpus || 4;
   const busyCores = cluster.cores ? cluster.cores.filter(c => c !== null).length : 0;
   const cpuPct = Math.round((busyCores / numCpus) * 100);
@@ -102,14 +101,14 @@ function renderSnapshot(snap) {
   document.getElementById('telemetry-sim-cores').innerText = `(${busyCores}/${numCpus} Cores)`;
   document.getElementById('sim-cpu-bar').style.width = `${cpuPct}%`;
 
-  const usedRam = cluster.used_memory_gb;
-  const totalRam = cluster.total_memory_gb;
+  const usedRam = cluster.used_memory_gb || 0;
+  const totalRam = cluster.total_memory_gb || 24;
   const ramPct = Math.round((usedRam / totalRam) * 100);
   document.getElementById('telemetry-sim-ram').innerText = `${usedRam} / ${totalRam} GB`;
   document.getElementById('telemetry-sim-ram-pct').innerText = `(${ramPct}%)`;
   document.getElementById('sim-ram-bar').style.width = `${ramPct}%`;
 
-  // Host PC Telemetry
+  // Host PC Telemetry (User's 24GB system)
   const host = snap.host || {};
   const hostCpu = host.cpu_percent_per_core ? Math.round(host.cpu_percent_per_core.reduce((a, b) => a + b, 0) / host.cpu_percent_per_core.length) : 0;
   document.getElementById('telemetry-host-cpu').innerText = `${hostCpu}%`;
@@ -136,7 +135,7 @@ function renderSnapshot(snap) {
   renderQueueColumn('col-ready-jobs', queues.ready, jobsMap, 'badge-state-ready', 'READY', true);
 
   // Render Tier 3: RUNNING Cores
-  renderRunningCores(cluster.cores || [], jobsMap, snap.mode === 'live', snap.config.time_quantum || 4);
+  renderRunningCores(cluster.cores || [], jobsMap, snap.mode === 'live', snap.config ? (snap.config.time_quantum || 4) : 4);
 
   // Render Tier 4: SUSPENDED Queue
   renderSuspendedColumn('col-suspended-jobs', queues.suspended, jobsMap);
@@ -171,16 +170,25 @@ function renderQueueColumn(elemId, jobIds, jobsMap, badgeClass, stateLabel, show
     if (!j) return '';
     const ageHtml = showAge ? `<span class="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Age: ${j.age_counter}</span>` : '';
     const prioBoosted = (j.priority < j.base_priority) ? 'text-emerald-400 font-bold' : 'text-slate-300';
+    const isLive = j.os_pid ? true : false;
+    const pidBadge = isLive ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/10 text-amber-300 border border-amber-500/30">PID: ${j.os_pid}</span>` : '';
+
     return `
-      <div onclick="openInspector(${j.id})" class="job-card bg-slate-900/90 border border-slate-800 hover:border-sky-500/60 rounded-lg p-2.5 cursor-pointer text-xs">
+      <div onclick="openInspector(${j.id})" class="job-card bg-slate-900/90 border border-slate-800 hover:border-sky-500/60 rounded-xl p-3 cursor-pointer text-xs shadow-md">
         <div class="flex items-center justify-between mb-1.5">
           <span class="font-mono font-bold text-white flex items-center gap-1.5">
             <span class="w-2 h-2 rounded-full" style="background-color: ${getJobColor(j.id)}"></span>
             #${j.id} <span class="text-slate-400 font-normal">(${j.user})</span>
           </span>
-          <span class="px-1.5 py-0.2 rounded text-[10px] font-mono ${prioBoosted} bg-slate-800 border border-slate-700">P${j.priority}</span>
+          <div class="flex items-center gap-1">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono ${prioBoosted} bg-slate-800 border border-slate-700">P${j.priority}</span>
+            <button onclick="event.stopPropagation(); cancelJob(${j.id});" class="text-slate-500 hover:text-rose-400 p-0.5" title="Cancel job">✕</button>
+          </div>
         </div>
-        <div class="text-slate-300 font-medium truncate mb-2">${j.name}</div>
+        <div class="text-slate-200 font-medium truncate mb-2 flex items-center justify-between">
+          <span>${j.name}</span>
+          ${pidBadge}
+        </div>
         <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
           <span>${j.memory_gb} GB</span>
           <span>Burst: ${j.remaining_time}/${j.burst_time}</span>
@@ -212,17 +220,21 @@ function renderRunningCores(cores, jobsMap, isLive, timeQuantum) {
     ` : '';
 
     return `
-      <div onclick="openInspector(${j.id})" class="job-card bg-slate-900 border border-emerald-500/40 rounded-xl p-3 shadow-md shadow-emerald-950/20 cursor-pointer text-xs">
+      <div onclick="openInspector(${j.id})" class="job-card core-active border border-emerald-500/50 rounded-xl p-3 shadow-md shadow-emerald-950/20 cursor-pointer text-xs">
         <div class="flex items-center justify-between mb-1.5">
           <div class="flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-emerald-400 pulsing-dot"></span>
             <span class="font-bold text-slate-200">Core ${idx}:</span>
             <span class="font-mono font-bold text-white">#${j.id}</span>
           </div>
-          <span class="font-mono text-[10px] text-slate-400">Q: ${j.quantum_used || 0}/${timeQuantum}</span>
+          <div class="flex items-center gap-1.5">
+            <span class="font-mono text-[10px] text-slate-400">Q: ${j.quantum_used || 0}/${timeQuantum}</span>
+            <button onclick="event.stopPropagation(); suspendJob(${j.id});" class="text-amber-400 hover:text-amber-300 p-0.5 font-bold" title="Suspend process">⏸</button>
+            <button onclick="event.stopPropagation(); cancelJob(${j.id});" class="text-slate-500 hover:text-rose-400 p-0.5" title="Cancel job">✕</button>
+          </div>
         </div>
 
-        <div class="font-medium text-slate-200 truncate mb-2">${j.name} (${j.user})</div>
+        <div class="font-semibold text-white truncate mb-2">${j.name} <span class="text-slate-400 font-normal">(${j.user})</span></div>
 
         <!-- Progress bar -->
         <div class="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden">
@@ -249,23 +261,27 @@ function renderSuspendedColumn(elemId, jobIds, jobsMap) {
   container.innerHTML = jobIds.map(id => {
     const j = jobsMap[id];
     if (!j) return '';
+    const pidBadge = j.os_pid ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">PID ${j.os_pid} (Suspended)</span>` : '';
     return `
-      <div class="job-card bg-slate-900/90 border border-amber-600/40 rounded-lg p-2.5 text-xs">
-        <div class="flex items-center justify-between mb-1">
+      <div onclick="openInspector(${j.id})" class="job-card card-suspended border rounded-xl p-3 text-xs shadow-md cursor-pointer">
+        <div class="flex items-center justify-between mb-1.5">
           <span class="font-mono font-bold text-white flex items-center gap-1.5">
             <span class="w-2 h-2 rounded-full bg-amber-400"></span>
             #${j.id} <span class="text-slate-400 font-normal">(${j.user})</span>
           </span>
-          <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-950 text-amber-300 border border-amber-700/50">Suspended x${j.suspension_count || 1}</span>
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-950 text-amber-300 border border-amber-700/50">Suspended x${j.suspension_count || 1}</span>
         </div>
-        <div class="text-slate-300 font-medium truncate mb-2">${j.name}</div>
-        <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-2">
+        <div class="text-slate-200 font-medium truncate mb-1.5 flex items-center justify-between">
+          <span>${j.name}</span>
+          ${pidBadge}
+        </div>
+        <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-2.5">
           <span>RAM Freed: ${j.memory_gb} GB</span>
           <span>Prio: ${j.priority}</span>
         </div>
         <div class="flex gap-2">
-          <button onclick="resumeJob(${j.id})" class="flex-1 py-1 rounded bg-cyan-900/40 hover:bg-cyan-800 text-cyan-200 border border-cyan-700 text-[10px] font-mono">Resume</button>
-          <button onclick="cancelJob(${j.id})" class="px-2 py-1 rounded bg-rose-900/40 hover:bg-rose-800 text-rose-200 border border-rose-700 text-[10px] font-mono">Cancel</button>
+          <button onclick="event.stopPropagation(); resumeJob(${j.id});" class="flex-1 py-1 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200 border border-cyan-700 text-[10px] font-mono font-semibold transition-colors">▶ Resume</button>
+          <button onclick="event.stopPropagation(); cancelJob(${j.id});" class="px-2 py-1 rounded bg-rose-900/50 hover:bg-rose-800 text-rose-200 border border-rose-700 text-[10px] font-mono transition-colors">✕ Cancel</button>
         </div>
       </div>
     `;
@@ -273,7 +289,7 @@ function renderSuspendedColumn(elemId, jobIds, jobsMap) {
 }
 
 // 3. Gantt Chart Timeline
-const ganttHistory = []; // list of slices: each slice is [core0, core1, ...]
+const ganttHistory = [];
 
 function renderGanttChart(currentCores, tick) {
   ganttHistory.push([...currentCores]);
@@ -287,7 +303,7 @@ function renderGanttChart(currentCores, tick) {
     html += `
       <div class="flex items-center gap-2">
         <span class="w-14 text-right text-xs font-mono font-bold text-slate-400 select-none">CPU ${c}:</span>
-        <div class="flex gap-1 overflow-x-hidden p-1 bg-slate-900/60 rounded border border-slate-800/80">
+        <div class="flex gap-1 overflow-x-hidden p-1 bg-slate-900/70 rounded-lg border border-slate-800">
     `;
 
     ganttHistory.forEach((slice, sIdx) => {
@@ -318,10 +334,10 @@ function initWatermarkChart() {
       labels: watermarkLabels,
       datasets: [
         {
-          label: 'Used Memory %',
+          label: 'Used RAM % (24GB)',
           data: watermarkMemoryData,
           borderColor: '#38bdf8',
-          backgroundColor: 'rgba(56, 189, 248, 0.1)',
+          backgroundColor: 'rgba(56, 189, 248, 0.12)',
           fill: true,
           tension: 0.3,
           borderWidth: 2,
@@ -330,7 +346,7 @@ function initWatermarkChart() {
         {
           label: 'Total Queued Jobs',
           data: watermarkQueueData,
-          borderColor: '#818cf8',
+          borderColor: '#a78bfa',
           borderDash: [2, 2],
           tension: 0.2,
           borderWidth: 1.5,
@@ -357,7 +373,7 @@ function initWatermarkChart() {
         yQueue: {
           position: 'right',
           grid: { display: false },
-          ticks: { color: '#818cf8', font: { family: 'JetBrains Mono', size: 10 } }
+          ticks: { color: '#a78bfa', font: { family: 'JetBrains Mono', size: 10 } }
         }
       },
       plugins: {
@@ -442,9 +458,11 @@ async function handleTerminalCommand(cmdStr) {
       "  sacct                         - View accounting log\n" +
       "  sbatch --name <n> --mem <m>   - Submit batch job\n" +
       "  scancel <job_id>              - Cancel a job\n" +
-      "  benchmark [--jobs 30]         - Run 5-policy benchmark\n" +
+      "  simport <pid>                 - Adopt host process from Windows Task Manager\n" +
+      "  shost                         - List adoptable Windows processes\n" +
+      "  benchmark [--jobs 30]         - Run 5-policy benchmark arena\n" +
       "  step [ticks]                  - Advance simulation\n" +
-      "  start / pause / reset         - Control simulation\n" +
+      "  start / pause / reset         - Control simulation clock\n" +
       "  clear                         - Clear terminal\n"
     );
     return;
@@ -463,6 +481,34 @@ async function handleTerminalCommand(cmdStr) {
       const res = await fetch('/api/sacct');
       const data = await res.json();
       appendTerminalOutput(formatSacctTable(data.jobs || []));
+    } else if (cmd === 'simport') {
+      const pid = parseInt(parts[1], 10);
+      if (!pid) {
+        appendTerminalOutput("Usage: simport <pid>");
+        return;
+      }
+      const res = await fetch('/api/host/adopt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pid, burst_time: 12, priority: 3 })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        appendTerminalOutput(`Adopted host process "${data.name}" (PID ${data.pid}) as batch Job #${data.job_id}`);
+        await fetchCurrentState();
+      } else {
+        appendTerminalOutput(`Error: ${data.detail}`);
+      }
+    } else if (cmd === 'shost') {
+      const res = await fetch('/api/host/processes');
+      const data = await res.json();
+      const procs = data.processes || [];
+      const pad = (s, l) => String(s).padEnd(l);
+      let out = `${pad('PID', 8)} ${pad('PROCESS_NAME', 25)} ${pad('RAM(MB)', 10)} CPU%\n`;
+      procs.slice(0, 15).forEach(p => {
+        out += `${pad(p.pid, 8)} ${pad(p.name.substring(0, 24), 25)} ${pad(p.memory_mb, 10)} ${p.cpu_percent}%\n`;
+      });
+      appendTerminalOutput(out);
     } else if (cmd === 'scancel') {
       const jid = parseInt(parts[1], 10);
       if (!jid) {
@@ -506,7 +552,7 @@ async function handleTerminalCommand(cmdStr) {
       await fetch('/api/control/reset', { method: 'POST' });
       appendTerminalOutput("Simulation reset to tick 0.");
     } else if (cmd === 'benchmark') {
-      appendTerminalOutput("Running 5-policy benchmark...");
+      appendTerminalOutput("Running 5-policy benchmark arena...");
       const res = await fetch('/api/benchmark', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -575,7 +621,7 @@ function openInspector(jobId) {
   const rt = job.first_run_time !== null ? job.first_run_time - job.arrival_time : '-';
 
   document.getElementById('inspector-content').innerHTML = `
-    <div class="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded border border-slate-800">
+    <div class="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-800">
       <div><span class="text-slate-500">User:</span> <span class="text-white">${job.user}</span></div>
       <div><span class="text-slate-500">State:</span> <span class="text-sky-400 font-bold">${job.state}</span></div>
       <div><span class="text-slate-500">Base Priority:</span> <span class="text-white">${job.base_priority}</span></div>
@@ -587,7 +633,7 @@ function openInspector(jobId) {
       <div><span class="text-slate-500">OS PID:</span> <span class="text-purple-400 font-bold">${job.os_pid || '-'}</span></div>
       <div><span class="text-slate-500">Suspension Count:</span> <span class="text-white">${job.suspension_count}</span></div>
     </div>
-    <div class="grid grid-cols-3 gap-2 bg-slate-900 p-3 rounded border border-slate-800 text-center">
+    <div class="grid grid-cols-3 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-800 text-center">
       <div><div class="text-slate-500 text-[10px]">WAIT TIME (WT)</div><div class="text-white font-bold text-sm">${wt}</div></div>
       <div><div class="text-slate-500 text-[10px]">TURNAROUND (TAT)</div><div class="text-white font-bold text-sm">${tat}</div></div>
       <div><div class="text-slate-500 text-[10px]">RESPONSE (RT)</div><div class="text-white font-bold text-sm">${rt}</div></div>
@@ -599,17 +645,103 @@ function openInspector(jobId) {
 
 async function resumeJob(jobId) {
   await fetch(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+  await fetchCurrentState();
 }
 
 async function suspendJob(jobId) {
   await fetch(`/api/jobs/${jobId}/suspend`, { method: 'POST' });
+  await fetchCurrentState();
 }
 
 async function cancelJob(jobId) {
   await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+  await fetchCurrentState();
 }
 
-// 8. 5-Policy Benchmark Modal & Charts
+// 8. Host Task Manager Tasks Adoption
+async function loadHostTasks() {
+  const container = document.getElementById('host-tasks-table-container');
+  container.innerHTML = `<div class="text-xs text-cyan-400 py-8 text-center font-mono flex items-center justify-center gap-2"><span class="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></span> Scanning active Windows Task Manager processes...</div>`;
+  try {
+    const res = await fetch('/api/host/processes');
+    const data = await res.json();
+    window.lastHostProcesses = data.processes || [];
+    renderHostTasksTable(window.lastHostProcesses);
+  } catch (err) {
+    container.innerHTML = `<div class="text-xs text-rose-400 py-6 text-center font-mono">Failed to scan processes: ${err.message}</div>`;
+  }
+}
+
+function renderHostTasksTable(processes) {
+  const container = document.getElementById('host-tasks-table-container');
+  const filter = (document.getElementById('host-task-filter').value || '').toLowerCase();
+  const filtered = processes.filter(p => p.name.toLowerCase().includes(filter) || String(p.pid).includes(filter));
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="text-xs text-slate-500 py-8 text-center font-mono">No matching host processes found.</div>`;
+    return;
+  }
+
+  let html = `
+    <table class="w-full text-xs font-mono text-left border border-slate-800 rounded-lg overflow-hidden">
+      <thead class="bg-slate-900 text-slate-400 border-b border-slate-800 sticky top-0">
+        <tr>
+          <th class="p-2.5">PID</th>
+          <th class="p-2.5">Process Name</th>
+          <th class="p-2.5">Real RAM (MB)</th>
+          <th class="p-2.5">Sim RAM Req</th>
+          <th class="p-2.5">Host CPU %</th>
+          <th class="p-2.5 text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/80 bg-slate-900/40">
+  `;
+
+  filtered.forEach(p => {
+    html += `
+      <tr class="hover:bg-slate-800/60 transition-colors">
+        <td class="p-2.5 text-sky-400 font-bold">${p.pid}</td>
+        <td class="p-2.5 text-white font-medium flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-cyan-400"></span> ${p.name}
+        </td>
+        <td class="p-2.5 text-amber-300 font-bold">${p.memory_mb} MB</td>
+        <td class="p-2.5 text-slate-300">${p.memory_gb} GB</td>
+        <td class="p-2.5 text-slate-300">${p.cpu_percent}%</td>
+        <td class="p-2.5 text-right">
+          <button onclick="adoptHostProcess(${p.pid})" class="px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-sans font-semibold text-[11px] shadow-sm shadow-cyan-950/40 transition-colors">
+            + Adopt & Schedule
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+}
+
+async function adoptHostProcess(pid) {
+  try {
+    const res = await fetch('/api/host/adopt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pid, burst_time: 12, priority: 3 })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('modal-host-tasks').classList.add('hidden');
+      await fetchCurrentState();
+      alert(`Success! Adopted "${data.name}" (PID ${data.pid}) as batch Job #${data.job_id}. The scheduler will now govern its execution and core affinity.`);
+    } else {
+      const err = await res.json();
+      alert(`Failed to adopt process: ${err.detail}`);
+    }
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+  }
+}
+
+// 9. 5-Policy Benchmark Modal & Charts
 async function triggerBenchmark() {
   const jobsCount = parseInt(document.getElementById('bm-jobs-count').value, 10);
   const seed = parseInt(document.getElementById('bm-seed').value, 10);
@@ -635,7 +767,6 @@ function renderBenchmarkResults(policies) {
   const policyKeys = ['fcfs', 'sjf', 'srtf', 'round_robin', 'priority'];
   const labels = ['FCFS', 'SJF', 'SRTF', 'Round Robin', 'Priority'];
 
-  // Identify winners (min for times/starvations, max for utilization/throughput)
   let bestWt = Infinity, bestTat = Infinity, bestUtil = -Infinity, bestSusp = Infinity;
   policyKeys.forEach(k => {
     const p = policies[k];
@@ -645,7 +776,6 @@ function renderBenchmarkResults(policies) {
     if (p.suspensions < bestSusp) bestSusp = p.suspensions;
   });
 
-  // Render Table
   let tableHtml = `
     <table class="w-full text-xs font-mono text-left border border-slate-800 rounded-lg overflow-hidden">
       <thead class="bg-slate-900 text-slate-400 border-b border-slate-800">
@@ -688,27 +818,20 @@ function renderBenchmarkResults(policies) {
   tableHtml += `</tbody></table>`;
   document.getElementById('bm-table-container').innerHTML = tableHtml;
 
-  // Render 4 Comparison Bar Charts
-  const chartColors = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
-
-  // Chart 1: Waiting & Response
   renderBarChart('bm-chart-waiting', labels, [
     { label: 'Avg Waiting Time', data: policyKeys.map(k => policies[k].avg_waiting_time), backgroundColor: '#38bdf8' },
     { label: 'Avg Response Time', data: policyKeys.map(k => policies[k].avg_response_time), backgroundColor: '#818cf8' }
   ]);
 
-  // Chart 2: TAT
   renderBarChart('bm-chart-tat', labels, [
     { label: 'Avg Turnaround Time', data: policyKeys.map(k => policies[k].avg_turnaround_time), backgroundColor: '#c084fc' }
   ]);
 
-  // Chart 3: CPU Util & Throughput
   renderBarChart('bm-chart-util', labels, [
     { label: 'CPU Utilization %', data: policyKeys.map(k => policies[k].cpu_utilization), backgroundColor: '#34d399' },
     { label: 'Throughput', data: policyKeys.map(k => policies[k].throughput), backgroundColor: '#4ade80' }
   ]);
 
-  // Chart 4: Suspensions & Starvation
   renderBarChart('bm-chart-susp', labels, [
     { label: 'Suspensions', data: policyKeys.map(k => policies[k].suspensions), backgroundColor: '#fbbf24' },
     { label: 'Starvation Count', data: policyKeys.map(k => policies[k].starvation_count), backgroundColor: '#f87171' }
@@ -737,7 +860,7 @@ function renderBarChart(canvasId, labels, datasets) {
   });
 }
 
-// 9. Event Listeners Initialization
+// 10. Event Listeners Initialization
 document.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   initWatermarkChart();
@@ -806,6 +929,22 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchCurrentState();
   });
 
+  // Speed Buttons
+  document.querySelectorAll('.btn-speed').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      document.querySelectorAll('.btn-speed').forEach(b => {
+        b.className = 'btn-speed px-1.5 py-1 rounded text-slate-400 hover:text-white transition-colors';
+      });
+      btn.className = 'btn-speed px-1.5 py-1 rounded bg-sky-600 text-white font-bold transition-colors';
+      const dur = parseFloat(btn.dataset.speed);
+      await fetch('/api/control/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tick_duration_sec: dur })
+      });
+    });
+  });
+
   // Apply Config Dropdowns
   document.getElementById('btn-apply-config').addEventListener('click', async () => {
     const lt = document.getElementById('cfg-long-term').value;
@@ -829,6 +968,48 @@ document.addEventListener('DOMContentLoaded', () => {
     if (snap) renderSnapshot(snap);
   });
 
+  // Workload Preset Load Button
+  document.getElementById('btn-apply-preset').addEventListener('click', async () => {
+    const val = document.getElementById('select-workload-preset').value;
+    const res = await fetch('/api/workload/preset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset: val })
+    });
+    const data = await res.json();
+    if (data && data.snapshot) renderSnapshot(data.snapshot);
+  });
+
+  // Quick Add 5 Jobs Button
+  document.getElementById('btn-quick-add-5').addEventListener('click', async () => {
+    const sampleNames = ['inference-eval', 'data-clean', 'audio-encode', 'matrix-mult', 'feature-extract'];
+    for (const name of sampleNames) {
+      await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          user: 'batch',
+          burst_time: Math.floor(Math.random() * 8) + 4,
+          memory_gb: Math.floor(Math.random() * 4) + 4,
+          priority: Math.floor(Math.random() * 4) + 1
+        })
+      });
+    }
+    await fetchCurrentState();
+  });
+
+  // Host Task Manager Adoption Modal
+  const modalHostTasks = document.getElementById('modal-host-tasks');
+  document.getElementById('btn-open-host-tasks').addEventListener('click', () => {
+    modalHostTasks.classList.remove('hidden');
+    loadHostTasks();
+  });
+  document.getElementById('btn-close-host-tasks').addEventListener('click', () => modalHostTasks.classList.add('hidden'));
+  document.getElementById('btn-refresh-host-tasks').addEventListener('click', loadHostTasks);
+  document.getElementById('host-task-filter').addEventListener('input', () => {
+    if (window.lastHostProcesses) renderHostTasksTable(window.lastHostProcesses);
+  });
 
   // Clear Event Log
   document.getElementById('btn-clear-log').addEventListener('click', () => {
@@ -882,6 +1063,7 @@ document.addEventListener('DOMContentLoaded', () => {
       body: JSON.stringify({ name, user, burst_time: burst, memory_gb: mem, priority: prio })
     });
     modalSubmit.classList.add('hidden');
+    await fetchCurrentState();
   });
 
   const modalBm = document.getElementById('modal-benchmark');

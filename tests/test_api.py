@@ -141,3 +141,18 @@ def test_websocket_connection(client: TestClient) -> None:
         snap = ws.receive_json()
         assert "tick" in snap
         assert "cluster" in snap
+
+
+def test_host_processes_and_presets(client: TestClient) -> None:
+    """Verify GET /api/host/processes and POST /api/workload/preset."""
+    res = client.get("/api/host/processes")
+    assert res.status_code == 200
+    assert "processes" in res.json()
+
+    res_preset = client.post("/api/workload/preset", json={"preset": "ai_pipeline"})
+    assert res_preset.status_code == 200
+    data = res_preset.json()
+    assert data["preset"] == "ai_pipeline"
+    assert data["jobs_count"] == 8
+    assert data["snapshot"]["cluster"]["total_memory_gb"] in (24, 64)
+

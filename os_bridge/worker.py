@@ -6,8 +6,17 @@ import sys
 import time
 
 
-def run_worker(job_id: int, mem_mb: int) -> None:
+def run_worker(job_id: int, mem_mb: int, job_name: str = "") -> None:
     """Allocate physical RAM and spin lightly on CPU."""
+    # Set Windows Console Title if on Windows for Task Manager visibility
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            title = f"{job_name} (Job #{job_id})" if job_name else f"Job #{job_id}"
+            ctypes.windll.kernel32.SetConsoleTitleW(f"CloudBatch: {title}")
+        except Exception:
+            pass
+
     # 1. Allocate buffer and touch memory pages to force real RSS allocation
     try:
         buffer_size = max(1, mem_mb) * 1024 * 1024
@@ -34,6 +43,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Real OS worker process payload.")
     parser.add_argument("--job-id", type=int, required=True, help="Job identifier")
     parser.add_argument("--mem-mb", type=int, default=16, help="Real RAM allocation in MB")
+    parser.add_argument("--job-name", type=str, default="", help="Job name identifier")
     args = parser.parse_args()
 
-    run_worker(args.job_id, args.mem_mb)
+    run_worker(args.job_id, args.mem_mb, args.job_name)
+

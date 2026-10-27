@@ -1,7 +1,7 @@
 {
   "cluster": {
     "num_cpus": 4,
-    "total_memory_gb": 64,
+    "total_memory_gb": 24,
     "memory_suspension_threshold": 0.85,
     "memory_resume_threshold": 0.70
   },

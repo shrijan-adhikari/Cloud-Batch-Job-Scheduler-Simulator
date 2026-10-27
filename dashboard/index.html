@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CloudBatch // HPC & Cloud Batch Job Scheduler Console</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>CloudBatch | 3-Tier HPC & OS Batch Scheduler Simulator</title>
+  <meta name="description" content="High-performance interactive 3-tier batch job scheduler simulator with real Windows Task Manager process bridge, multi-core Gantt charts, and memory watermark hysteresis.">
+  
+  <!-- Tailwind CSS & Chart.js CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
@@ -14,16 +14,13 @@
       darkMode: 'class',
       theme: {
         extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
           colors: {
             brand: {
-              dark: '#070a13',
-              card: '#0f172a',
-              border: '#1e293b',
-              accent: '#38bdf8',
+              50: '#f0f9ff',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              900: '#0c4a6e',
+              950: '#082f49',
             }
           }
         }
@@ -32,71 +29,73 @@
   </script>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="bg-[#070a13] text-slate-100 min-h-screen font-sans flex flex-col selection:bg-sky-500 selection:text-white">
+<body class="bg-[#060913] text-slate-100 min-h-screen font-sans flex flex-col selection:bg-sky-500 selection:text-white">
 
   <!-- TOP HEADER / TELEMETRY & CONTROLS BAR -->
-  <header class="bg-[#0f172a]/90 backdrop-blur border-b border-slate-800/80 sticky top-0 z-40 px-5 py-3">
-    <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-4">
+  <header class="glass-header border-b border-slate-800/80 sticky top-0 z-40 px-5 py-2.5">
+    <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-3">
       
       <!-- Brand & Status -->
       <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 via-indigo-600 to-cyan-400 p-[2px] shadow-lg shadow-sky-500/20">
-          <div class="w-full h-full bg-[#0b0f19] rounded-[10px] flex items-center justify-center">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 via-indigo-600 to-cyan-400 p-[2px] shadow-lg shadow-sky-500/20">
+          <div class="w-full h-full bg-[#090d16] rounded-[10px] flex items-center justify-center">
             <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
           </div>
         </div>
         <div>
           <div class="flex items-center space-x-2">
-            <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
-              CloudBatch <span class="text-xs px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono border border-sky-500/30">HPC // K8s</span>
+            <h1 class="text-base font-extrabold tracking-tight text-white flex items-center gap-2">
+              CloudBatch <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono border border-sky-500/30">HPC // K8s</span>
             </h1>
-            <span id="ws-badge" class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+            <span id="ws-badge" class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5"></span> WS CONNECTED
             </span>
           </div>
-          <p class="text-xs text-slate-400">3-Tier Batch Job Scheduler & Host Task Manager Bridge</p>
+          <p class="text-xs text-slate-400">3-Tier Scheduler & Live Host Task Manager Bridge</p>
         </div>
 
         <div class="h-8 w-[1px] bg-slate-800 mx-2 hidden sm:block"></div>
 
         <!-- Tick Badge -->
-        <div class="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-1.5 shadow-inner">
-          <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold mr-2">Tick</span>
+        <div class="flex items-center bg-slate-900/90 border border-slate-700/80 rounded-lg px-3 py-1 shadow-inner">
+          <span class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mr-2">Tick</span>
           <span id="tick-counter" class="text-lg font-bold font-mono text-sky-400">#0</span>
         </div>
       </div>
 
-      <!-- Center: Dual Telemetry Bar -->
-      <div class="hidden lg:flex items-center gap-6 bg-slate-900/80 border border-slate-800 rounded-xl px-4 py-2 text-xs font-mono">
+      <!-- Center: Dual Telemetry Bar (Cluster & 24GB Host PC) -->
+      <div class="hidden lg:flex items-center gap-5 bg-slate-900/80 border border-slate-800 rounded-xl px-4 py-1.5 text-xs font-mono">
         <!-- Sim Cluster Stats -->
-        <div class="flex items-center gap-3">
-          <span class="text-slate-400 font-semibold uppercase text-[10px]">Cluster Sim:</span>
+        <div class="flex items-center gap-2.5">
+          <span class="text-sky-400 font-semibold uppercase text-[10px] flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span> Sim Cluster:
+          </span>
           <div>
             <span class="text-slate-400">CPU:</span>
             <span id="telemetry-sim-cpu" class="text-white font-bold">0%</span>
             <span id="telemetry-sim-cores" class="text-slate-400 text-[11px]">(0/4 Cores)</span>
           </div>
-          <div class="w-16 h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div class="w-14 h-2 bg-slate-800 rounded-full overflow-hidden">
             <div id="sim-cpu-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
           </div>
-          <div class="text-slate-500">|</div>
+          <div class="text-slate-600">|</div>
           <div>
             <span class="text-slate-400">RAM:</span>
-            <span id="telemetry-sim-ram" class="text-white font-bold">0 GB</span>
+            <span id="telemetry-sim-ram" class="text-white font-bold">0 / 24 GB</span>
             <span id="telemetry-sim-ram-pct" class="text-slate-400 text-[11px]">(0%)</span>
           </div>
-          <div class="w-16 h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div class="w-14 h-2 bg-slate-800 rounded-full overflow-hidden">
             <div id="sim-ram-bar" class="h-full bg-cyan-500 transition-all duration-300" style="width: 0%"></div>
           </div>
         </div>
 
         <div class="w-[1px] h-6 bg-slate-700/80"></div>
 
-        <!-- Real Host PC Stats (psutil) -->
-        <div class="flex items-center gap-3">
+        <!-- Real Host PC Stats (psutil matching 24GB host) -->
+        <div class="flex items-center gap-2.5">
           <span class="text-amber-400 font-semibold uppercase text-[10px] flex items-center gap-1">
             <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-            Host PC:
+            Host PC (24GB):
           </span>
           <div>
             <span class="text-slate-400">CPU:</span>
@@ -106,22 +105,30 @@
             <span class="text-slate-400">RAM:</span>
             <span id="telemetry-host-ram" class="text-white font-bold">0%</span>
           </div>
-          <span id="telemetry-host-pids" class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[11px]">
+          <span id="telemetry-host-pids" class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[11px] font-bold">
             0 Workers
           </span>
         </div>
       </div>
 
       <!-- Right: Action Controls -->
-      <div class="flex items-center gap-2.5">
+      <div class="flex items-center gap-2">
         <!-- Live OS Mode Toggle -->
-        <label class="flex items-center cursor-pointer bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 transition-colors group">
+        <label class="flex items-center cursor-pointer bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 rounded-lg px-2.5 py-1.5 transition-colors group">
           <input type="checkbox" id="mode-toggle" class="sr-only peer">
-          <div class="w-8 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500 relative mr-2"></div>
+          <div class="w-7 h-3.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-amber-500 relative mr-1.5"></div>
           <span class="text-xs font-semibold text-slate-300 group-hover:text-white transition-colors flex items-center gap-1">
             Real OS Bridge
           </span>
         </label>
+
+        <!-- Speed Selector -->
+        <div class="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px] font-mono">
+          <button data-speed="2.0" class="btn-speed px-1.5 py-1 rounded text-slate-400 hover:text-white transition-colors">0.5x</button>
+          <button data-speed="1.0" class="btn-speed px-1.5 py-1 rounded bg-sky-600 text-white font-bold transition-colors">1x</button>
+          <button data-speed="0.5" class="btn-speed px-1.5 py-1 rounded text-slate-400 hover:text-white transition-colors">2x</button>
+          <button data-speed="0.2" class="btn-speed px-1.5 py-1 rounded text-slate-400 hover:text-white transition-colors">5x</button>
+        </div>
 
         <!-- Play / Pause -->
         <button id="btn-play-pause" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-md shadow-emerald-900/30">
@@ -133,13 +140,18 @@
         <!-- Step +1 -->
         <button id="btn-step" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white font-mono text-xs transition-colors flex items-center gap-1">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
-          Step +1
+          Step
         </button>
 
         <!-- Reset -->
-        <button id="btn-reset" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-700/60 text-slate-300 hover:text-rose-300 text-xs transition-colors flex items-center gap-1">
+        <button id="btn-reset" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-700/60 text-slate-300 hover:text-rose-300 text-xs transition-colors">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-          Reset
+        </button>
+
+        <!-- Task Manager Tasks Adoption Button -->
+        <button id="btn-open-host-tasks" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-950/40">
+          <svg class="w-3.5 h-3.5 text-cyan-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+          Host Tasks
         </button>
 
         <!-- Submit Job Modal Button -->
@@ -158,37 +170,39 @@
     </div>
   </header>
 
-  <!-- SCHEDULER POLICY CONFIGURATION STRIP -->
-  <section class="bg-[#0b101d] border-b border-slate-800/80 px-5 py-2.5">
-    <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-4 text-xs">
-      <div class="flex flex-wrap items-center gap-4">
+  <!-- SECONDARY ACTION & WORKLOAD PRESET BAR -->
+  <section class="bg-[#090e1a] border-b border-slate-800/80 px-5 py-2">
+    <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+      
+      <!-- Left: Active Schedulers Configuration -->
+      <div class="flex flex-wrap items-center gap-3">
         <span class="text-slate-400 font-semibold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-          <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-          Active Schedulers:
+          <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+          Schedulers:
         </span>
 
         <!-- Long-Term Policy Dropdown -->
-        <div class="flex items-center gap-1.5">
-          <label for="cfg-long-term" class="text-slate-400">Long-Term:</label>
-          <select id="cfg-long-term" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2.5 py-1 focus:ring-1 focus:ring-sky-500 focus:outline-none font-mono text-[11px]">
+        <div class="flex items-center gap-1">
+          <label for="cfg-long-term" class="text-slate-400">LT (RAM):</label>
+          <select id="cfg-long-term" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2 py-1 font-mono text-[11px]">
             <option value="memory_aware_fcfs">Memory-Aware FCFS</option>
             <option value="priority_admission">Priority Admission</option>
           </select>
         </div>
 
         <!-- Medium-Term Policy Dropdown -->
-        <div class="flex items-center gap-1.5">
-          <label for="cfg-medium-term" class="text-slate-400">Medium-Term:</label>
-          <select id="cfg-medium-term" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2.5 py-1 focus:ring-1 focus:ring-sky-500 focus:outline-none font-mono text-[11px]">
+        <div class="flex items-center gap-1">
+          <label for="cfg-medium-term" class="text-slate-400">MT (Swap):</label>
+          <select id="cfg-medium-term" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2 py-1 font-mono text-[11px]">
             <option value="suspend_lowest_priority">Suspend Lowest Priority</option>
             <option value="suspend_largest_memory">Suspend Largest Memory</option>
           </select>
         </div>
 
         <!-- Short-Term Policy Dropdown -->
-        <div class="flex items-center gap-1.5">
-          <label for="cfg-short-term" class="text-slate-400 font-semibold text-sky-300">Short-Term (CPU):</label>
-          <select id="cfg-short-term" class="bg-slate-900 border border-sky-500/60 text-sky-200 rounded px-2.5 py-1 focus:ring-1 focus:ring-sky-500 focus:outline-none font-mono text-[11px]">
+        <div class="flex items-center gap-1">
+          <label for="cfg-short-term" class="text-sky-300 font-semibold">ST (CPU):</label>
+          <select id="cfg-short-term" class="bg-slate-900 border border-sky-500/60 text-sky-200 rounded px-2 py-1 font-mono text-[11px]">
             <option value="round_robin">Round Robin (Preemptive)</option>
             <option value="fcfs">FCFS (Non-Preemptive)</option>
             <option value="sjf">SJF (Shortest Job First)</option>
@@ -197,30 +211,93 @@
           </select>
         </div>
 
-        <!-- Time Quantum -->
-        <div class="flex items-center gap-1.5">
+        <!-- Quantum -->
+        <div class="flex items-center gap-1">
           <label for="cfg-quantum" class="text-slate-400">Quantum:</label>
-          <select id="cfg-quantum" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2 py-1 font-mono text-[11px]">
-            <option value="2">2 ticks</option>
-            <option value="4" selected>4 ticks</option>
-            <option value="6">6 ticks</option>
+          <select id="cfg-quantum" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-1.5 py-1 font-mono text-[11px]">
+            <option value="2">2t</option>
+            <option value="4" selected>4t</option>
+            <option value="6">6t</option>
           </select>
         </div>
 
-        <!-- Cluster Sizing -->
-        <div class="flex items-center gap-1.5">
-          <label for="cfg-cpus" class="text-slate-400">CPUs:</label>
-          <select id="cfg-cpus" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2 py-1 font-mono text-[11px]">
-            <option value="2">2 Cores</option>
-            <option value="4" selected>4 Cores</option>
-            <option value="8">8 Cores</option>
+        <!-- CPUs -->
+        <div class="flex items-center gap-1">
+          <label for="cfg-cpus" class="text-slate-400">Cores:</label>
+          <select id="cfg-cpus" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-1.5 py-1 font-mono text-[11px]">
+            <option value="2">2</option>
+            <option value="4" selected>4</option>
+            <option value="8">8</option>
           </select>
         </div>
+
+        <button id="btn-apply-config" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 text-[11px] font-mono transition-colors">
+          Apply
+        </button>
       </div>
 
-      <button id="btn-apply-config" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 text-[11px] font-mono transition-colors">
-        Apply & Reset
-      </button>
+      <!-- Right: Workload Presets & Quick Add -->
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400 font-semibold uppercase text-[11px] flex items-center gap-1">
+          <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          Presets:
+        </span>
+        <select id="select-workload-preset" class="bg-slate-900 border border-purple-500/40 text-purple-200 rounded px-2.5 py-1 font-mono text-[11px] focus:outline-none">
+          <option value="ai_pipeline">AI / ML Pipeline (8 Jobs)</option>
+          <option value="big_data">Big Data ETL Pipeline (8 Jobs)</option>
+          <option value="hpc_sim">HPC Physics Simulation (8 Jobs)</option>
+          <option value="memory_stress">RAM Stress (Trigger 85% Watermark)</option>
+          <option value="standard" selected>Standard Workload (20 Jobs)</option>
+        </select>
+        <button id="btn-apply-preset" class="px-2.5 py-1 rounded bg-purple-900/60 hover:bg-purple-800 border border-purple-700 text-purple-200 text-[11px] font-semibold transition-colors">
+          Load
+        </button>
+
+        <div class="h-4 w-[1px] bg-slate-700/80 mx-1"></div>
+
+        <button id="btn-quick-add-5" class="px-2.5 py-1 rounded bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 text-[11px] font-mono transition-colors flex items-center gap-1">
+          <span>+5 Jobs</span>
+        </button>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- PIPELINE FLOW RIBBON -->
+  <section class="max-w-[1920px] mx-auto px-5 pt-3 pb-1 w-full hidden md:block">
+    <div class="pipeline-ribbon px-4 py-2 flex items-center justify-between text-[11px] font-mono text-slate-300">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
+        <span class="font-bold text-white">1. Ingest (NEW)</span>
+        <span class="text-slate-500">Unadmitted Workload</span>
+      </div>
+      <div class="flex items-center gap-1 text-slate-500">
+        <span class="text-sky-400 font-bold">Long-Term Gate</span> (RAM check)
+        <svg class="w-4 h-4 text-sky-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+        <span class="font-bold text-white">2. READY Queue</span>
+        <span class="text-slate-500">RAM Allocated</span>
+      </div>
+      <div class="flex items-center gap-1 text-slate-500">
+        <span class="text-emerald-400 font-bold">Short-Term</span> (Core Dispatch)
+        <svg class="w-4 h-4 text-emerald-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span class="font-bold text-white">3. RUNNING Cores</span>
+        <span class="text-slate-500">CPU Execution</span>
+      </div>
+      <div class="flex items-center gap-1 text-slate-500">
+        <span class="text-amber-400 font-bold">Medium-Term</span> (RAM &gt; 85% / &lt; 70%)
+        <svg class="w-4 h-4 text-amber-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <span class="font-bold text-white">4. SUSPENDED</span>
+        <span class="text-slate-500">Swapped Out</span>
+      </div>
     </div>
   </section>
 
@@ -231,10 +308,10 @@
     <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       
       <!-- Tier 1: NEW QUEUE -->
-      <div class="bg-[#0f172a] border border-slate-800 rounded-xl p-4 flex flex-col shadow-lg shadow-black/20">
+      <div class="glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-sm shadow-indigo-500/50"></span>
             <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">1. Job Queue (NEW)</h2>
           </div>
           <span id="badge-new-count" class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/50">0</span>
@@ -246,10 +323,10 @@
       </div>
 
       <!-- Tier 2: READY QUEUE -->
-      <div class="bg-[#0f172a] border border-slate-800 rounded-xl p-4 flex flex-col shadow-lg shadow-black/20">
+      <div class="glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50"></span>
             <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">2. Ready Queue (READY)</h2>
           </div>
           <span id="badge-ready-count" class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/50">0</span>
@@ -261,30 +338,30 @@
       </div>
 
       <!-- Tier 3: RUNNING ON CORES -->
-      <div class="bg-[#0f172a] border border-slate-800 rounded-xl p-4 flex flex-col shadow-lg shadow-black/20">
+      <div class="glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 pulsing-dot shadow-sm shadow-emerald-400/50"></span>
             <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">3. CPU Dispatch (RUNNING)</h2>
           </div>
           <span id="badge-running-count" class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700/50">0/4</span>
         </div>
-        <p class="text-[11px] text-slate-400 mb-2">Active CPU core execution & live Task Manager PID pinning.</p>
+        <p class="text-[11px] text-slate-400 mb-2">Active CPU core execution & live Task Manager process pinning.</p>
         <div id="col-running-cores" class="flex-1 overflow-y-auto max-h-[340px] space-y-2.5 pr-1 custom-scroll">
           <!-- Cores dynamically injected -->
         </div>
       </div>
 
       <!-- Tier 4: SUSPENDED QUEUE -->
-      <div class="bg-[#0f172a] border border-slate-800 rounded-xl p-4 flex flex-col shadow-lg shadow-black/20">
+      <div class="glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50"></span>
             <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wide">4. RAM Swapper (SUSPENDED)</h2>
           </div>
           <span id="badge-suspended-count" class="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-950 text-amber-300 border border-amber-700/50">0</span>
         </div>
-        <p class="text-[11px] text-slate-400 mb-2">Swapped out when RAM &gt; 85%. RAM released, process paused.</p>
+        <p class="text-[11px] text-slate-400 mb-2">Swapped out when RAM &gt; 85%. RAM released, process suspended.</p>
         <div id="col-suspended-jobs" class="flex-1 overflow-y-auto max-h-[340px] space-y-2 pr-1 custom-scroll">
           <div class="text-xs text-slate-500 text-center py-8">No suspended jobs</div>
         </div>
@@ -296,13 +373,13 @@
     <section class="grid grid-cols-1 lg:grid-cols-12 gap-5">
       
       <!-- Multi-Core Gantt Timeline Strip -->
-      <div class="lg:col-span-7 bg-[#0f172a] border border-slate-800 rounded-xl p-4 shadow-lg shadow-black/20 flex flex-col">
+      <div class="lg:col-span-7 glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
           <div class="flex items-center gap-2">
             <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
             <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Multi-Core Gantt Timeline</h3>
           </div>
-          <span class="text-[11px] font-mono text-slate-400">Last 35 ticks</span>
+          <span class="text-[11px] font-mono text-slate-400">Last 35 ticks execution history</span>
         </div>
         <div id="gantt-container" class="space-y-3 py-1 overflow-x-auto custom-scroll">
           <!-- Dynamically injected Gantt rows -->
@@ -310,13 +387,13 @@
       </div>
 
       <!-- Live Memory Watermark & Queue Graph -->
-      <div class="lg:col-span-5 bg-[#0f172a] border border-slate-800 rounded-xl p-4 shadow-lg shadow-black/20 flex flex-col">
+      <div class="lg:col-span-5 glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-800">
           <div class="flex items-center gap-2">
             <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
-            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">RAM Watermark & Hysteresis Graph</h3>
+            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">RAM Watermark & Hysteresis</h3>
           </div>
-          <span class="text-[11px] font-mono text-slate-400">Dual Thresholds (85% / 70%)</span>
+          <span class="text-[11px] font-mono text-slate-400">24 GB Scale (85% Suspend / 70% Resume)</span>
         </div>
         <div class="relative w-full h-[220px]">
           <canvas id="memory-watermark-chart"></canvas>
@@ -329,7 +406,7 @@
     <section class="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-4">
       
       <!-- Scheduler Event Log -->
-      <div class="lg:col-span-6 bg-[#0f172a] border border-slate-800 rounded-xl p-4 shadow-lg shadow-black/20 flex flex-col">
+      <div class="lg:col-span-6 glass-panel p-4 flex flex-col">
         <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
           <div class="flex items-center gap-2">
             <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -343,7 +420,7 @@
       </div>
 
       <!-- Interactive SLURM Web Console -->
-      <div class="lg:col-span-6 bg-[#0a0e17] border border-slate-800 rounded-xl p-4 shadow-lg shadow-black/20 flex flex-col font-mono">
+      <div class="lg:col-span-6 bg-[#080d18] border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col font-mono">
         <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
           <div class="flex items-center gap-2">
             <div class="flex space-x-1.5">
@@ -353,16 +430,16 @@
             </div>
             <span class="text-xs font-semibold text-slate-300 ml-2">Interactive SLURM Web Terminal</span>
           </div>
-          <span class="text-[11px] text-slate-500">sbatch, squeue, sinfo, sacct, scancel</span>
+          <span class="text-[11px] text-slate-500">sbatch, squeue, sinfo, sacct, scancel, simport</span>
         </div>
         
         <div id="terminal-output" class="flex-1 overflow-y-auto max-h-[180px] text-xs text-slate-300 space-y-1 whitespace-pre custom-scroll select-text">
           <span class="text-slate-500">CloudBatch SLURM Control Console v2.1. Type 'help' for command list.</span>
         </div>
 
-        <form id="terminal-form" class="mt-2 pt-2 border-t border-slate-800 flex items-center gap-2">
-          <span class="text-emerald-400 font-bold text-xs select-none">slurm@cluster:~$</span>
-          <input type="text" id="terminal-input" class="flex-1 bg-transparent border-none text-xs text-white focus:outline-none font-mono" placeholder="squeue, sinfo, sbatch --name job --mem 16 --burst 6, help" autocomplete="off" spellcheck="false">
+        <form id="terminal-form" class="mt-3 flex items-center gap-2 pt-2 border-t border-slate-800">
+          <span class="text-emerald-400 text-xs font-bold font-mono">slurm@cluster:~$</span>
+          <input type="text" id="terminal-input" autocomplete="off" placeholder="Type squeue, sinfo, sbatch, or simport <pid>..." class="flex-1 bg-transparent border-none text-xs text-white font-mono focus:outline-none focus:ring-0">
         </form>
       </div>
 
@@ -370,38 +447,68 @@
 
   </main>
 
-  <!-- 5-POLICY BENCHMARK COMPARISON MODAL -->
-  <div id="modal-benchmark" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
-    <div class="bg-[#0f172a] border border-slate-700 rounded-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl custom-scroll">
-      <div class="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-        <div>
-          <h2 class="text-lg font-bold text-white flex items-center gap-2">
-            5-Policy Head-to-Head Benchmark Suite
-            <span class="px-2 py-0.5 rounded text-xs font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">FCFS vs SJF vs SRTF vs RR vs Priority</span>
-          </h2>
-          <p class="text-xs text-slate-400 mt-1">Runs identical deep-copied workloads across all 5 short-term scheduling policies.</p>
+  <!-- HOST TASK MANAGER REAL PROCESS ADOPTION MODAL -->
+  <div id="modal-host-tasks" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-panel border border-cyan-500/40 rounded-2xl max-w-3xl w-full p-6 shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-white">Adopt Tasks from Windows Task Manager</h3>
+            <p class="text-xs text-slate-400">Import running host tasks (browsers, music, tools) into the 3-tier batch scheduler.</p>
+          </div>
         </div>
-        <button id="btn-close-benchmark" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        <button id="btn-close-host-tasks" class="text-slate-400 hover:text-white p-1 text-base">✕</button>
+      </div>
+
+      <div class="flex items-center justify-between mb-3 gap-2">
+        <input type="text" id="host-task-filter" placeholder="Filter processes (e.g. spotify, chrome, python)..." class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono flex-1 focus:ring-1 focus:ring-cyan-500 focus:outline-none">
+        <button id="btn-refresh-host-tasks" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-300 border border-slate-700 flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          Refresh
         </button>
       </div>
 
-      <div class="flex items-center gap-4 mb-5">
-        <label for="bm-jobs-count" class="text-xs text-slate-300">Jobs:</label>
-        <select id="bm-jobs-count" class="bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 font-mono text-white">
-          <option value="20">20 Jobs</option>
-          <option value="30" selected>30 Jobs</option>
-          <option value="50">50 Jobs</option>
-          <option value="100">100 Jobs</option>
-        </select>
-        <label for="bm-seed" class="text-xs text-slate-300">Seed:</label>
-        <input type="number" id="bm-seed" value="42" class="w-16 bg-slate-900 border border-slate-700 text-xs rounded px-2 py-1 font-mono text-white">
-        <button id="btn-run-benchmark-now" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-colors flex items-center gap-1.5">
+      <div id="host-tasks-table-container" class="flex-1 overflow-y-auto max-h-[450px] custom-scroll">
+        <!-- Injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 5-POLICY BENCHMARK MODAL -->
+  <div id="modal-benchmark" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-panel border border-indigo-500/40 rounded-2xl max-w-5xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto custom-scroll">
+      <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-indigo-500"></span>
+          5-Policy Comparative Benchmark Arena
+        </h3>
+        <button id="btn-close-benchmark" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <!-- Benchmark Config Bar -->
+      <div class="flex flex-wrap items-center gap-3 mb-4 text-xs font-mono bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+        <div class="flex items-center gap-1.5">
+          <label for="bm-jobs-count" class="text-slate-400">Workload Size:</label>
+          <select id="bm-jobs-count" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white">
+            <option value="15">15 Jobs</option>
+            <option value="30" selected>30 Jobs</option>
+            <option value="50">50 Jobs</option>
+            <option value="100">100 Jobs</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <label for="bm-seed" class="text-slate-400">Random Seed:</label>
+          <input type="number" id="bm-seed" value="42" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white">
+        </div>
+        <button id="btn-run-benchmark-now" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition-colors flex items-center gap-1 shadow-md shadow-indigo-950/40">
           <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-          Run Benchmark
+          Run Arena
         </button>
         <span id="bm-spinner" class="text-xs text-indigo-400 font-mono hidden flex items-center gap-1.5">
-          <span class="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></span> Simulating...
+          <span class="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></span> Simulating across 5 policies...
         </span>
       </div>
 
@@ -433,8 +540,8 @@
   </div>
 
   <!-- SUBMIT JOB MODAL (sbatch) -->
-  <div id="modal-submit" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
-    <div class="bg-[#0f172a] border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+  <div id="modal-submit" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-panel border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
         <h3 class="text-sm font-bold text-white flex items-center gap-2">
           Submit Batch Job (sbatch)
@@ -458,7 +565,7 @@
           </div>
           <div>
             <label class="block text-slate-400 mb-1">Memory (GB RAM)</label>
-            <input type="number" id="input-job-mem" required min="1" max="32" value="16" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-white font-mono focus:ring-1 focus:ring-sky-500">
+            <input type="number" id="input-job-mem" required min="1" max="24" value="8" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-white font-mono focus:ring-1 focus:ring-sky-500">
           </div>
         </div>
         <div>
@@ -480,10 +587,10 @@
   </div>
 
   <!-- JOB INSPECTOR MODAL -->
-  <div id="modal-inspector" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
-    <div class="bg-[#0f172a] border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl font-mono text-xs">
+  <div id="modal-inspector" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+    <div class="glass-panel border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl font-mono text-xs">
       <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
-        <h3 id="inspector-title" class="text-sm font-bold text-white">Job Inspector #101</h3>
+        <h3 id="inspector-title" class="text-sm font-bold text-white">Job Inspector</h3>
         <button id="btn-close-inspector" class="text-slate-400 hover:text-white font-sans">✕</button>
       </div>
 

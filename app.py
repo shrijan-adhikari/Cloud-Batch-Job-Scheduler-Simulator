@@ -56,6 +56,18 @@ class BenchmarkRequest(BaseModel):
     seed: int = Field(default=42)
 
 
+class AdoptHostProcessRequest(BaseModel):
+    pid: int
+    burst_time: int = Field(default=12, ge=1)
+    priority: int = Field(default=3, ge=1, le=5)
+
+
+class PresetWorkloadRequest(BaseModel):
+    preset: str
+    num_jobs: Optional[int] = None
+
+
+
 # App State Container
 class AppState:
     def __init__(self) -> None:
@@ -78,7 +90,7 @@ def load_app_config() -> dict:
         with open(config_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {
-        "cluster": {"num_cpus": 4, "total_memory_gb": 64, "memory_suspension_threshold": 0.85, "memory_resume_threshold": 0.70},
+        "cluster": {"num_cpus": 4, "total_memory_gb": 24, "memory_suspension_threshold": 0.85, "memory_resume_threshold": 0.70},
         "schedulers": {"long_term_policy": "memory_aware_fcfs", "medium_term_policy": "suspend_lowest_priority", "short_term_policy": "round_robin", "time_quantum": 4, "aging_interval_ticks": 6, "min_residency_ticks": 3, "max_swaps_per_tick": 1},
         "os_bridge": {"enabled": False, "ram_scale_mb_per_gb": 15, "tick_duration_sec": 1.0, "max_total_real_ram_mb": 1024, "max_live_workers": 16},
         "workload": {"num_jobs": 20, "random_seed": 42},
@@ -429,7 +441,7 @@ async def get_sacct() -> dict:
 async def benchmark_endpoint(req: Optional[BenchmarkRequest] = None) -> dict:
     num_j = req.num_jobs if req else 30
     seed = req.seed if req else 42
-    total_mem = state.engine.cluster.total_memory_gb if state.engine else 64
+    total_mem = state.engine.cluster.total_memory_gb if state.engine else 24
     b_jobs = generate_workload(num_j, seed, total_mem)
     cfg = state.engine.config if state.engine else load_app_config()
 
@@ -439,6 +451,110 @@ async def benchmark_endpoint(req: Optional[BenchmarkRequest] = None) -> dict:
         "seed": seed,
         "policies": res,
     }
+
+
+# 4. Host Process Adoption & Workload Presets
+@app.get("/api/host/processes")
+async def list_host_processes() -> dict:
+    if state.process_manager is None:
+        return {"processes": []}
+    return {"processes": state.process_manager.get_user_processes()}
+
+
+@app.post("/api/host/adopt")
+async def adopt_host_process(req: AdoptHostProcessRequest) -> dict:
+    if state.engine is None or state.process_manager is None:
+        raise HTTPException(status_code=500, detail="Engine uninitialized")
+    async with state.lock:
+        if not state.process_manager.enabled:
+            state.process_manager.enabled = True
+            state.engine.os_bridge = state.process_manager
+
+        # Create job with default parameters
+        job = state.engine.submit(
+            name=f"proc-{req.pid}",
+            user="host-os",
+            burst_time=req.burst_time,
+            memory_gb=4,
+            priority=req.priority,
+        )
+        ok = state.process_manager.adopt_process(req.pid, job, core=0)
+        if not ok:
+            if job in state.engine.all_jobs:
+                state.engine.all_jobs.remove(job)
+            if job in state.engine.new_queue:
+                state.engine.new_queue.remove(job)
+            raise HTTPException(status_code=400, detail=f"Failed to adopt PID {req.pid} (process not found or access denied)")
+
+        snap = state.engine.snapshot()
+    await broadcast_snapshot(snap)
+    return {"adopted": True, "job_id": job.id, "pid": req.pid, "name": job.name}
+
+
+@app.post("/api/workload/preset")
+async def apply_workload_preset(req: PresetWorkloadRequest) -> dict:
+    if state.engine is None:
+        raise HTTPException(status_code=500, detail="Engine uninitialized")
+    async with state.lock:
+        state.is_running = False
+        if state.process_manager:
+            state.process_manager.terminate_all()
+
+        total_mem = state.engine.cluster.total_memory_gb
+        cfg = state.engine.config
+
+        if req.preset == "ai_pipeline":
+            jobs = [
+                Job(id=101, name="train-resnet", user="pytorch", arrival_time=0, burst_time=14, memory_gb=6, base_priority=1),
+                Job(id=102, name="finetune-bert", user="huggingface", arrival_time=1, burst_time=12, memory_gb=8, base_priority=2),
+                Job(id=103, name="eval-metrics", user="mlops", arrival_time=2, burst_time=6, memory_gb=4, base_priority=3),
+                Job(id=104, name="quantize-onnx", user="onnx", arrival_time=3, burst_time=8, memory_gb=4, base_priority=3),
+                Job(id=105, name="export-tensorrt", user="nvidia", arrival_time=4, burst_time=10, memory_gb=6, base_priority=2),
+                Job(id=106, name="data-tokenize", user="pytorch", arrival_time=5, burst_time=5, memory_gb=4, base_priority=4),
+                Job(id=107, name="embedding-gen", user="mlops", arrival_time=6, burst_time=9, memory_gb=6, base_priority=3),
+                Job(id=108, name="benchmark-infer", user="bench", arrival_time=7, burst_time=4, memory_gb=4, base_priority=5),
+            ]
+        elif req.preset == "big_data":
+            jobs = [
+                Job(id=101, name="ingest-kafka", user="streaming", arrival_time=0, burst_time=15, memory_gb=6, base_priority=2),
+                Job(id=102, name="etl-spark", user="spark", arrival_time=0, burst_time=16, memory_gb=8, base_priority=1),
+                Job(id=103, name="parquet-convert", user="dataeng", arrival_time=2, burst_time=8, memory_gb=4, base_priority=3),
+                Job(id=104, name="aggregate-sql", user="trino", arrival_time=3, burst_time=10, memory_gb=6, base_priority=2),
+                Job(id=105, name="log-parse", user="elastic", arrival_time=4, burst_time=6, memory_gb=4, base_priority=4),
+                Job(id=106, name="dedup-dataset", user="spark", arrival_time=5, burst_time=7, memory_gb=6, base_priority=3),
+                Job(id=107, name="s3-sync-backup", user="infra", arrival_time=6, burst_time=5, memory_gb=4, base_priority=5),
+                Job(id=108, name="index-vacuum", user="postgres", arrival_time=7, burst_time=4, memory_gb=4, base_priority=4),
+            ]
+        elif req.preset == "hpc_sim":
+            jobs = [
+                Job(id=101, name="monte-carlo", user="physicist", arrival_time=0, burst_time=18, memory_gb=8, base_priority=1),
+                Job(id=102, name="render-frames", user="blender", arrival_time=0, burst_time=12, memory_gb=6, base_priority=2),
+                Job(id=103, name="fluid-dynamics", user="cfd-lab", arrival_time=1, burst_time=15, memory_gb=8, base_priority=1),
+                Job(id=104, name="mesh-generator", user="cfd-lab", arrival_time=2, burst_time=8, memory_gb=4, base_priority=3),
+                Job(id=105, name="n-body-gravity", user="astro", arrival_time=3, burst_time=14, memory_gb=6, base_priority=2),
+                Job(id=106, name="ray-trace-4k", user="blender", arrival_time=4, burst_time=10, memory_gb=6, base_priority=3),
+                Job(id=107, name="climate-forecast", user="noaa", arrival_time=5, burst_time=16, memory_gb=8, base_priority=1),
+                Job(id=108, name="thermal-stress", user="mechanics", arrival_time=6, burst_time=7, memory_gb=4, base_priority=4),
+            ]
+        elif req.preset == "memory_stress":
+            jobs = [
+                Job(id=101, name="heavy-worker-A", user="stress", arrival_time=0, burst_time=16, memory_gb=10, base_priority=1),
+                Job(id=102, name="heavy-worker-B", user="stress", arrival_time=0, burst_time=16, memory_gb=10, base_priority=3),
+                Job(id=103, name="victim-candidate", user="stress", arrival_time=1, burst_time=20, memory_gb=6, base_priority=5),
+                Job(id=104, name="high-prio-trigger", user="root", arrival_time=2, burst_time=12, memory_gb=8, base_priority=1),
+                Job(id=105, name="cache-buffer", user="redis", arrival_time=3, burst_time=8, memory_gb=4, base_priority=4),
+            ]
+        else:
+            n = req.num_jobs or 20
+            jobs = generate_workload(n, 42, total_mem)
+
+        bridge = state.process_manager if state.process_manager.enabled else None
+        state.engine = Engine(config=cfg, jobs=jobs, os_bridge=bridge)
+        snap = state.engine.snapshot()
+
+    await broadcast_snapshot(snap)
+    return {"preset": req.preset, "jobs_count": len(jobs), "snapshot": snap}
+
 
 
 # 4. WebSocket Loop

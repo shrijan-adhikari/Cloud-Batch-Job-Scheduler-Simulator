@@ -48,6 +48,17 @@ class ProcessManager:
 
         proc: Optional[psutil.Process] = worker_info.get("process")
         popen: Optional[subprocess.Popen] = worker_info.get("popen")
+        is_adopted: bool = worker_info.get("is_adopted", False)
+
+        # For adopted tasks from host Task Manager, safely un-suspend without terminating
+        if is_adopted:
+            if proc is not None:
+                try:
+                    if proc.is_running() and worker_info.get("status") == "suspended":
+                        proc.resume()
+                except Exception:
+                    pass
+            return
 
         try:
             if proc is not None and proc.is_running():
@@ -117,14 +128,17 @@ class ProcessManager:
         else:
             allocated_mb = max(16, desired_mb)
 
+        runner_exe = self._get_runner_executable(job.name)
         cmd = [
-            sys.executable,
+            runner_exe,
             "-m",
             "os_bridge.worker",
             "--job-id",
             str(int(job.id)),
             "--mem-mb",
             str(int(allocated_mb)),
+            "--job-name",
+            str(job.name),
         ]
 
         popen = subprocess.Popen(
@@ -146,8 +160,46 @@ class ProcessManager:
             "core": core,
             "status": "running",
             "spawn_time": time.time(),
+            "is_adopted": False,
         }
         self._pin_affinity(proc, core)
+
+    def _get_runner_executable(self, job_name: str) -> str:
+        """Create or return a named Python runner so the process appears under job_name in Task Manager."""
+        if not sys.platform.startswith("win"):
+            return sys.executable
+
+        try:
+            temp_bin = os.path.join(os.environ.get("TEMP", os.path.expanduser("~")), "CloudBatch_Runners")
+            os.makedirs(temp_bin, exist_ok=True)
+            clean_name = "".join(c if (c.isalnum() or c in "-_") else "_" for c in job_name.strip())
+            if not clean_name:
+                clean_name = "batch-worker"
+            target_exe = os.path.join(temp_bin, f"{clean_name}.exe")
+
+            if not os.path.exists(target_exe):
+                with open(sys.executable, "rb") as f:
+                    data = bytearray(f.read())
+
+                # Clear Resource DataDirectory in PE OptionalHeader so Windows Task Manager
+                # displays the custom executable name without grouping under 'Python (N)'
+                pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+                magic = int.from_bytes(data[pe_offset + 24 : pe_offset + 26], "little")
+                if magic == 0x20B:  # PE32+ (64-bit)
+                    res_entry = pe_offset + 24 + 112 + 16
+                else:  # PE32 (32-bit)
+                    res_entry = pe_offset + 24 + 96 + 16
+
+                if res_entry + 8 <= len(data):
+                    data[res_entry : res_entry + 8] = b"\x00" * 8
+
+                with open(target_exe, "wb") as f:
+                    f.write(data)
+
+            return target_exe
+        except Exception:
+            return sys.executable
+
 
     def suspend(self, job: Job) -> None:
         """Suspend worker process in the OS (shows 'Suspended' in Task Manager)."""
@@ -204,3 +256,61 @@ class ProcessManager:
         base["active_workers"] = sum(1 for w in self.workers.values() if w.get("status") == "running")
         base["suspended_workers"] = sum(1 for w in self.workers.values() if w.get("status") == "suspended")
         return base
+
+    def get_user_processes(self) -> list[dict]:
+        """Scan active processes running on host Task Manager that can be adopted into scheduler."""
+        blacklist = {
+            "system", "system idle process", "registry", "smss.exe", "csrss.exe",
+            "wininit.exe", "services.exe", "lsass.exe", "svchost.exe", "fontdrvhost.exe",
+            "winlogon.exe", "dwm.exe", "explorer.exe", "taskmgr.exe", "antigravity.exe",
+            "python.exe"
+        }
+        tracked_pids = {w["pid"] for w in self.workers.values()}
+        results = []
+        for p in psutil.process_iter(['pid', 'name', 'username', 'memory_info', 'cpu_percent']):
+            try:
+                info = p.info
+                pname = (info.get("name") or "").lower()
+                pid = info.get("pid", 0)
+                if pid <= 4 or pname in blacklist or pid in tracked_pids:
+                    continue
+                mem_mb = round(info["memory_info"].rss / (1024 * 1024), 1) if info.get("memory_info") else 0.0
+                results.append({
+                    "pid": pid,
+                    "name": info.get("name") or f"Process-{pid}",
+                    "memory_mb": mem_mb,
+                    "memory_gb": max(1, int(round(mem_mb / 1024))),
+                    "cpu_percent": round(info.get("cpu_percent") or 0.0, 1),
+                    "username": info.get("username") or "user",
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                continue
+        results.sort(key=lambda x: x["memory_mb"], reverse=True)
+        return results[:35]
+
+    def adopt_process(self, pid: int, job: Job, core: int = 0) -> bool:
+        """Adopt an already running host process from Windows Task Manager into scheduler management."""
+        if not psutil.pid_exists(pid):
+            return False
+        try:
+            proc = psutil.Process(pid)
+            mem_mb = round(proc.memory_info().rss / (1024 * 1024), 1)
+            job.os_pid = pid
+            job.assigned_cpu = core
+            job.name = f"{proc.name()}"
+            self.workers[job.id] = {
+                "job_id": job.id,
+                "pid": pid,
+                "popen": None,
+                "process": proc,
+                "allocated_mb": mem_mb,
+                "core": core,
+                "status": "running",
+                "spawn_time": time.time(),
+                "is_adopted": True,
+            }
+            self._pin_affinity(proc, core)
+            return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            return False
+
